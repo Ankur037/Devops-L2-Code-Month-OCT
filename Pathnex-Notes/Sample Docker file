@@ -1,0 +1,65 @@
+# Stage 1: Build Stage
+# Use the official Node.js image as the build environment.
+# We use a specific version tag to ensure consistent builds (node:16-alpine)
+FROM node:16-alpine AS build
+
+# Step 1: Set the working directory inside the container.
+# All following commands will be executed relative to this directory.
+WORKDIR /neeraj/pathnex/
+
+# Step 2: Copy the package.json and package-lock.json (or yarn.lock)
+# This helps with caching dependencies so they don't get re-installed on every build.
+COPY package*.json ./
+
+# Step 3: Install dependencies
+# Install only production dependencies in the build stage to keep this layer lightweight.
+# The --production flag will skip the devDependencies, making the image smaller.
+RUN npm install --production
+
+# Step 4: Copy all application code into the container
+# We copy all the remaining files (excluding those defined in .dockerignore).
+COPY . .
+
+# Step 5: Build the application (if applicable)
+# Many Node.js apps need to transpile or bundle files before running.
+# For example, a React app might need to be built, or TypeScript code might need to be transpiled.
+RUN npm run build
+
+# Stage 2: Production Stage
+# Now we switch to a smaller image for running the app in production.
+# This helps reduce the final image size by excluding unnecessary build tools.
+FROM node:16-alpine AS production
+
+# Step 1: Set the working directory again in the production image
+WORKDIR /app
+
+# Step 2: Copy only the necessary files from the build stage
+# This keeps the image size smaller by avoiding copying unnecessary dev files.
+COPY --from=build /app/dist /app/dist  # Copy the built code (e.g., transpiled files)
+COPY --from=build /app/node_modules /app/node_modules  # Copy production node_modules
+COPY --from=build /app/package*.json /app/  # Copy only the package.json for metadata
+
+# Step 3: Set environment variables
+# We define `NODE_ENV=production` so that Node.js knows it's running in production mode.
+# It's a good practice to not hard-code sensitive information into the Dockerfile.
+ENV NODE_ENV=production
+
+# Set the port your app will be accessible on inside the container (can be overridden at runtime)
+ENV PORT=3000
+
+# Step 4: Expose the port
+# This makes the container’s port available for external access. Adjust based on your app's configuration.
+EXPOSE 3000
+
+# Step 5: Add a non-root user for better security practices
+# By default, Docker containers run as root, which can be a security risk.
+# We create a user and group specifically for running the app.
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Switch to the non-root user to ensure the application runs with limited permissions
+USER appuser
+
+# Step 6: Use a command to start the app in production
+# `npm start` is typically the command to start the app in production.
+# Adjust this based on the actual entry point for your app (e.g., `node dist/index.js`).
+CMD ["npm", "start"]
